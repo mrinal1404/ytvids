@@ -1,77 +1,59 @@
-import React, { useState } from "react";
-import axios from "axios";
+import React, { useState } from 'react';
+import axios from 'axios';
 
 function App() {
-  const [resumeText, setResumeText] = useState("");
-  const [role, setRole] = useState("");
-  const [analysis, setAnalysis] = useState(null);
-  const [videos, setVideos] = useState([]);
+    const [file, setFile] = useState(null);
+    const [role, setRole] = useState('');
+    const [videos, setVideos] = useState([]);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    try {
-      const response = await axios.post("http://127.0.0.1:5000/analyze-resume", {
-        resume_text: resumeText,
-        role: role,
-      });
-      setAnalysis(response.data.analysis);
-      setVideos(response.data.videos || []);
-    } catch (error) {
-      console.error("Error analyzing resume:", error);
-      alert("An error occurred. Please try again.");
-    }
-  };
+    const handleFileChange = (event) => {
+        setFile(event.target.files[0]);
+    };
 
-  return (
-    <div style={{ padding: "20px" }}>
-      <h1>Resume Role Analyzer</h1>
-      <form onSubmit={handleSubmit}>
-        <div>
-          <label>Role:</label>
-          <input
-            type="text"
-            value={role}
-            onChange={(e) => setRole(e.target.value)}
-            required
-          />
-        </div>
-        <div>
-          <label>Resume Text:</label>
-          <textarea
-            rows="10"
-            cols="50"
-            value={resumeText}
-            onChange={(e) => setResumeText(e.target.value)}
-            required
-          />
-        </div>
-        <button type="submit">Analyze</button>
-      </form>
+    const handleUpload = async () => {
+        if (!file) {
+            alert('Please select a file');
+            return;
+        }
 
-      {analysis && (
-        <div>
-          <h2>Analysis</h2>
-          <p>{analysis}</p>
-        </div>
-      )}
+        const formData = new FormData();
+        formData.append('file', file);
 
-      {videos.length > 0 && (
-        <div>
-          <h2>Suggested YouTube Videos</h2>
-          <ul>
-            {videos.map((video, index) => (
-              <li key={index}>
-                <a href={video} target="_blank" rel="noopener noreferrer">
-                  {video}
-                </a>
-              </li>
-            ))}
-          </ul>
+        try {
+            const response = await axios.post('http://localhost:5000/upload', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' },
+            });
+            setRole(response.data.role);
+            setVideos(response.data.videos);
+        } catch (error) {
+            console.error('Error uploading file:', error);
+            alert('Failed to upload resume');
+        }
+    };
+
+    return (
+        <div className="App">
+            <h1>Resume Role Detection</h1>
+            <input type="file" onChange={handleFileChange} />
+            <button onClick={handleUpload}>Upload Resume</button>
+
+            {role && <h2>Detected Role: {role}</h2>}
+            {videos.length > 0 && (
+                <div>
+                    <h3>Recommended Videos:</h3>
+                    <ul>
+                        {videos.map((video, index) => (
+                            <li key={index}>
+                                <a href={video.url} target="_blank" rel="noopener noreferrer">
+                                    {video.title}
+                                </a>
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            )}
         </div>
-      )}
-    </div>
-  );
+    );
 }
 
 export default App;
-

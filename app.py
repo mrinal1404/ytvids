@@ -1,57 +1,62 @@
 from flask import Flask, request, jsonify
-import openai
-import os
+from flask_cors import CORS
+import pytesseract
+import PyPDF2
+from transformers import pipeline
+from googleapiclient.discovery import build
 
+# Set up Flask app
 app = Flask(__name__)
+CORS(app)
 
-# Configure OpenAI API key
-openai.api_key = "your_openai_api_key"
+# Hugging Face Zero-shot Classification Pipeline
+classifier = pipeline("zero-shot-classification", model="facebook/bart-large-mnli")
 
-@app.route('/analyze-resume', methods=['POST'])
-def analyze_resume():
-    try:
-        data = request.json
-        resume_text = data.get("resume_text", "")
-        role = data.get("role", "")
+# YouTube API key
+YOUTUBE_API_KEY = "YOUR_YOUTUBE_API_KEY"
 
-        if not resume_text or not role:
-            return jsonify({"error": "Resume text and role are required."}), 400
+# Function to extract text from a PDF file
+def extract_text_from_pdf(file_path):
+    with open(file_path, 'rb') as pdf_file:
+        reader = PyPDF2.PdfReader(pdf_file)
+        return " ".join(page.extract_text() for page in reader.pages)
 
-        # Analyze the resume using OpenAI GPT
-        prompt = (f"Analyze the following resume:\n\n{resume_text}\n\n"
-                  f"Does this resume match the role '{role}'? "
-                  "Respond with Yes or No, and explain why.")
-        
-        response = openai.Completion.create(
-            model="text-davinci-003",
-            prompt=prompt,
-            max_tokens=150
-        )
-        analysis = response.choices[0].text.strip()
+# Detect role using zero-shot classification
+def detect_role(text):
+    roles = ["Data Scientist", "Software Engineer", "Project Manager", "Business Analyst", "Unknown"]
+    result = classifier(text, roles)
+    return result["labels"][0]
 
-        if "Yes" in analysis:
-            return jsonify({"match": True, "analysis": analysis})
-        else:
-            # Suggest YouTube videos
-            videos = suggest_youtube_videos(role)
-            return jsonify({"match": False, "analysis": analysis, "videos": videos})
+# Fetch YouTube videos for a job role
+def fetch_youtube_videos(query):
+    youtube = build("youtube", "v3", developerKey=YOUTUBE_API_KEY)
+    search_response = youtube.search().list(
+        q=query, part="snippet", maxResults=5, type="video"
+    ).execute()
+    return [
+        {"title": item["snippet"]["title"], "url": f"https://www.youtube.com/watch?v={item['id']['videoId']}"}
+        for item in search_response["items"]
+    ]
 
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-def suggest_youtube_videos(role):
-    # Example video suggestions (replace with actual YouTube API logic if needed)
-    video_links = {
-        "Data Scientist": [
-            "https://www.youtube.com/watch?v=ua-CiDNNj30",
-            "https://www.youtube.com/watch?v=5iT3KY8AC8g"
-        ],
-        "Software Engineer": [
-            "https://www.youtube.com/watch?v=VfhYu5IlVbw",
-            "https://www.youtube.com/watch?v=zOjov-2OZ0E"
-        ]
-    }
-    return video_links.get(role, ["https://www.youtube.com/watch?v=dQw4w9WgXcQ"])
+@app.route('/upload', methods=['POST'])
+def upload_resume():
+    if 'file' not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+    file = request.files['file']
+    file_path = f"./uploads/{file.filename}"
+    file.save(file_path)
+    
+    # Extract text from the uploaded resume
+    text = extract_text_from_pdf(file_path)
+    role = detect_role(text)
+    
+    # If the role is "Unknown", fetch YouTube videos for career guidance
+    if role.lower() == "unknown":
+        videos = fetch_youtube_videos("career guidance")
+    else:
+        videos = fetch_youtube_videos(role)
+    
+    return jsonify({"role": role, "videos": videos})
 
 if __name__ == '__main__':
     app.run(debug=True)
